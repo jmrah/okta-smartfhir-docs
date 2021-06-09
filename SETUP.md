@@ -33,7 +33,7 @@ cd okta-smartfhir-demo
 ```
 
 ### Step 3- Generate an SSL public/private key that will be used by the token endpoint to authenticate with Okta.
-The keypair generated here will be used to communicate with Okta in case of _public_ SMART clients (e.g. SPAs, native apps).  _Confidential_ SMART client (e.g. backend web apps) will _not_ use this keypair, and instead use their client_id/client_secret credentials as per normal.
+The keypair generated here will be used to communicate with Okta in case of _public_ SMART clients (e.g. SPAs, native apps).  _Confidential_ SMART client (e.g. backend web apps) will _not_ use this keypair, and instead use their client_id/client_secret credentials as per normal.  We'll be using Postman as a SMART client which falls into the confidential client category.
 
 ```bash
 openssl genrsa -out private_key.pem 2048
@@ -67,7 +67,7 @@ STATE_COOKIE_SIGNATURE_KEY: <JustPutAReallyLongValueHere!>
 EXPECTED_AUD_VALUE: https://yourFHIRserver.com
 ```
 
-### Step 7- Create the Patient Picker application in Okta (and SMART application if you don't already have one).
+### Step 7- Create the Patient Picker application in Okta
 In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Remember to assign your users to this app.
 Update the serverless.yml file with the proper details:
 ```yaml
@@ -75,6 +75,9 @@ PICKER_DISPLAY_NAME: Patient Picker
 PICKER_CLIENT_ID: _CLIENT_ID_FOR_PATIENT_PICKER_
 PICKER_CLIENT_SECRET: _CLIENT_SECRET_FOR_PATIENT_PICKER_
 ```
+
+### Create the Postman application in Okta.
+In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Remember to assign your users to this app.  Add the URL `https://oauth.pstmn.io/v1/callback` in the `Sign-in redirect URIs` form field.
 
 ### Step 8- Create an API key for the Patient Picker
 At this time, the Patient Picker application uses an API key to read authorization server details, so we need an API key minted. PR's are welcome to update to use OAuth2 instead of an API key. Use the Security->API->Tokens menu to create this token.
