@@ -84,6 +84,14 @@ Update the serverless.yml file with the proper details:
 API_KEY: _AN_API_KEY_
 ```
 
+### Configure the region and API Gateway stage in serverless.yml
+Find the provider configuration block in `serverless.yml`, and change the API Gateway stage name and deployment region to your liking:
+```yaml
+provider:
+  stage: sandbox
+  region: us-west-2
+```
+
 ### Step 9- Deploy!
 To deploy this example, run the following command:
 
