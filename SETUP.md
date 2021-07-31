@@ -13,11 +13,12 @@ For an overview of this project and all of the components, please see here: [Pro
 * [SMART Client Registration - Public](#smart-client-registration---public)
 
 ## Prerequisites
+* A deployment of the smart-mainline  branch of FHIR Works on AWS.
 * An Okta tenant ([Get one here free](https://developer.okta.com/signup))
 * Node.js 12+
 * Serverless framework ([Get started here](https://www.serverless.com/framework/docs/getting-started/#via-npm))
 * OpenSSL libraries (included on any *nix distribution)
-* Postman, or other API invocation tool (not strictly required- but will make configuration easier)
+* Postman, or other API invocation tool (not strictly required- but will make configuration easier).
 
 ## Solution Deployment and Initial Okta setup
 In this section, we'll do some initial Okta setup, as well as deploy all of the requisite endpoints to our chosen cloud serverless platform.
@@ -27,13 +28,18 @@ In this section, we'll do some initial Okta setup, as well as deploy all of the 
 * [Provide the platform with AWS credentials](https://www.serverless.com/framework/docs/providers/aws/guide/credentials/)
 
 ### Step 2- Clone the reference implementation repository into your development machine filesystem.
+Note: The following is a fork by user jmrah.  It makes the following changes to support the solution being deployed behind an _existing_ API Gateway:
+1. Removes all the metadata endpoints.
+2. Removes the HAPI FHIR proxy.
+3. Adds serverless.yml configuration to deploy to an existing API Gateway.
+4. Updates the consent screen to display Okta ["FLEXIBLE" scopes](https://developer.okta.com/docs/guides/request-user-consent/require-consent/) in addition to "REQUIRED" scopes.
 ```bash
-git clone https://github.com/dancinnamon-okta/okta-smartfhir-demo.git
+git clone https://github.com/jmrah/okta-smartfhir-demo.git
 cd okta-smartfhir-demo
 ```
 
 ### Step 3- Generate an SSL public/private key that will be used by the token endpoint to authenticate with Okta.
-The keypair generated here will be used to communicate with Okta in case of _public_ SMART clients (e.g. SPAs, native apps).  _Confidential_ SMART client (e.g. backend web apps) will _not_ use this keypair, and instead use their client_id/client_secret credentials as per normal.  We'll be using Postman as a SMART client which falls into the confidential client category.
+The keypair generated here will be used to sign a secret JWT token when proxying the /token request to Okta in the case of _public_ SMART clients (e.g. SPAs, native apps), eliminating the need for public clients to store a secret.  _Confidential_ SMART client (e.g. backend web apps) will _not_ use this keypair, and instead use their client_id/client_secret credentials as per normal.  We'll be using Postman as a SMART client which falls into the confidential client category.
 
 ```bash
 openssl genrsa -out private_key.pem 2048
@@ -55,20 +61,20 @@ npm install
 
 ### Step 6- Create the authorization server in Okta
 In Okta, create a custom authorization server (in the Security->API menu) that you'll be using to authorize users in the demo.
-Give the server whatever name you'd like.  Put in a placeholder value in the "audience" field for now- we'll update it later.
-Don't worry about any other authorization server configurations- it'll be fully configured later in this guide.
+Give the server whatever name you'd like.  Put in the full base URL + stage of your FHIR Works deployment for the audience field (e.g. https://8s7uajoedd.execute-api.us-west-2.amazonaws.com/dev).  Don't worry about any other authorization server configurations- it'll be fully configured later in this guide.
 
 Update the serverless.yml with the proper details:
-```yaml
+```yaml    
 AUTHZ_ISSUER: https://_YOUR_ORG_.oktapreview.com/oauth2/_YOUR_AUTHZ_SERVER_
 AUTHZ_SERVER: _YOUR_AUTHZ_SERVER_
 OKTA_ORG: _YOUR_ORG_.oktapreview.com
 STATE_COOKIE_SIGNATURE_KEY: <JustPutAReallyLongValueHere!>
-EXPECTED_AUD_VALUE: https://yourFHIRserver.com
+EXPECTED_AUD_VALUE: https://yourFHIRserver.com (e.g. https://8s7uajoedd.execute-api.us-west-2.amazonaws.com/dev)
 ```
 
-### Step 7- Create the Patient Picker application in Okta
-In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Remember to assign your users to this app.
+### Step 7- Create the Patient Picker application in Okta.
+In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Turn require user consent off.  Make sure the sign-in redirect URIs include <yourFhirServerApi>/<stage>/picker_oidc_callback (e.g. https://8s7uajoedd.execute-api.us-west-2.amazonaws.com/dev/picker_oidc_callback).  Remember to assign your users to this app.
+	
 Update the serverless.yml file with the proper details:
 ```yaml
 PICKER_DISPLAY_NAME: Patient Picker
@@ -77,7 +83,16 @@ PICKER_CLIENT_SECRET: _CLIENT_SECRET_FOR_PATIENT_PICKER_
 ```
 
 ### Create the Postman application in Okta.
-In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Remember to assign your users to this app.  Add the URL `https://oauth.pstmn.io/v1/callback` in the `Sign-in redirect URIs` form field.
+In Okta, create a new OIDC web application (in the applications menu), using the authorization code flow only.  Turn require user consent off.  Make sure the sign-in redirect URIs include:
+	1. <yourFhirServerApi>/<stage>/smart_proxy_callback (e.g. https://8s7uajoedd.execute-api.us-west-2.amazonaws.com/dev/smart_proxy_callback).
+	2. https://oauth.pstmn.io/v1/callback
+	
+Remember to assign your users to this app.
+	
+### Create the TECSA POC application in Okta.
+[Using the Okta REST API](https://github.com/jmrah/okta-smartfhir-docs/blob/main/SETUP.md#smart-client-registration---public), create an Okta application for the TECSA POC web app.  Make sure the sign-in redirect URIs include:
+	1. <yourFhirServerApi>/<stage>/smart_proxy_callback (e.g. https://8s7uajoedd.execute-api.us-west-2.amazonaws.com/dev/smart_proxy_callback).
+	2. <callback_uri_of_tecsa_poc> (e.g. http://localhost:8000/)
 
 ### Step 8- Create an API key for the Patient Picker
 At this time, the Patient Picker application uses an API key to read authorization server details, so we need an API key minted. PR's are welcome to update to use OAuth2 instead of an API key. Use the Security->API->Tokens menu to create this token.
@@ -87,12 +102,15 @@ Update the serverless.yml file with the proper details:
 API_KEY: _AN_API_KEY_
 ```
 
-### Configure the region and API Gateway stage in serverless.yml
+### Configure the region, stage and API Gateway in serverless.yml
 Find the provider configuration block in `serverless.yml`, and change the API Gateway stage name and deployment region to your liking:
 ```yaml
 provider:
-  stage: sandbox
-  region: us-west-2
+  stage: <stage>
+  region: <region>
+  apiGateway:
+    restApiId: <restApiId>9s7u3jogkd
+    restApiRootResourceId: <restApiRootResourceId>
 ```
 
 ### Step 9- Deploy!
@@ -109,13 +127,12 @@ Now that the server is deployed, you'll need to update the `Sign-in redirect URI
 
 ## Okta Profile Attribute
 
-Now we need to add SMART specific Okta profile attributes. Start by navigating to the Directory -> Profile Editor -> 🖊️ Profile
+Now we need to add SMART specific Okta profile attributes. Start by navigating to the Directory → Profile Editor → Okta → User (default) menu
 
-### patient_id
+### fhirPatientId
 
 A key requirement of a SMART/FHIR deployment is the ability to associate a patient id with a user record.  To satisfy this requirement, we need an Okta profile attribute that will hold a patient id for each patient user within the system.
-In the Okta profile editor, create a string attribute called "patient_id" as shown:
-![Profile Editor Example](./images/profile_editor_sample.png "Profile Editor Example")
+In the Okta profile editor, create a string attribute called "fhirPatientId"
 
 ### fhirUser
 
@@ -127,7 +144,7 @@ The token hook is executed at runtime by Okta, and is responsible for ensuring t
 
 If an attacker (or curious user) attempts to alter the authorization request data, or bypass the custom consent screen altogether- the token hook will fail validation, and then entire authorization request will fail.
 
-It also amends access token that will be minted by Okta with the details of the patient that was selected in the Patient Picker (if any).
+It also amends the access token that will be minted by Okta with the details of the patient that was selected in the Patient Picker (if any).
 
 To configure the token hook, use the Workflows->Inline Hooks menu to create a "Token Inline Hook" as shown:
 Note: the value you'll use is the URL for your API Gateway URL + tokenhook. Example: `https://{uid}.execute-api.{region}.amazonaws.com/{stage}/tokenhook`
